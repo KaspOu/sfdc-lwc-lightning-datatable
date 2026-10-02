@@ -31,7 +31,7 @@
                 name="fields"
                 type="String"
                 required="true"
-                label="Enter Field API Name by comma seperated"
+                label="Enter Field API Name by comma separated"
                 default="FirstName,LastName,AccountId,CreatedDate,Account.Name"
             />
       <property
@@ -48,7 +48,9 @@
             />
       <property name="relatedFieldAPI" type="String" label="Enter Related field API Name" />
       <property name="formulaImageFields" type="String" default='["FormulaField__c"]' label="Formula Image Field API Names" />
-      <property name="showCheckboxes" type="Boolean" default="true" label="Hide/Unhide checkbox column" />
+      <property name="showCheckboxes" type="Boolean" default="true" label="Show/hide checkbox column" />
+      <property name="showCheckboxesCondition" type="String" default='{"field": "", "values":[""] }' label="Show checkbox only under condition" />
+      <property name="hideActions" type="Boolean" default="false" label="Hide/Unhide action column" />
       <property name="whereClause" type="String" label="Enter WHERE clause" />
       <property name="groupBy" type="String" label="Enter GROUP BY clause" />
       <property name="orderBy" type="String" label="Order by" />
@@ -56,13 +58,48 @@
       <property name="isCounterDisplayed" type="Boolean" label="Show the number of record" />
       <property name="showViewAll" type="Boolean" label="Show the view all / collapse buttons" />
       <property name="hasPagination" type="Boolean" label="Enable/Disable pagination" default="false" />
+      <property name="paginationLabels" type="String" label='Pagination labels' default='{"first": "First","previous": "Previous", "prefix": "", "separator": "/", "suffix": "", "next": "Next", "last": "Last", "refresh": "Refresh"}' />
+
       <property
                 name="actionButtons"
                 type="String"
-                default='[{"name": "New","label": "New","variant": "neutral"}]'
+                default='[{"name": "New","label": "New","variant": "neutral"},{"name": "CustomEvent","label": "If Selected","variant": "neutral", "disabled": "true"}]'
                 label="Enter Action Buttons JSON"
             />
-      <property name="hasSearchBar" type="Boolean" label="Enable/Disable search" default="true" />
+      <property name="hasSearchBar" type="Boolean" label="Enable/Disable SOSL search" default="true" />
+      <property name="fieldsSearchBars"
+                type="String"
+                label="Enter fields with associated SOQL LIKE search, comma separated"
+                default='[{ "fieldName": "Name", "label": "Filter by Name"}]'
+            />
+      <property
+                name="customCss"
+                type="String"
+                label="Enter Custom CSS"
+                default=''
+            />
+      <property
+                name="prequeryHook"
+                type="String"
+                label="Prequery Hook (alters soql query)"
+                default=''
+            />
+      <property
+                name="recordsHook"
+                type="String"
+                label="Records Hook (alters returned records)"
+                default=''
+            />
+      <property
+                name="maxRowSelection"
+                type="Integer"
+                label="Max rows selection"
+            />
+      <property
+                name="noResultMessage"
+                type="String"
+                label="Message if no result"
+            />
     </targetConfig>
   </targetConfigs>
 </LightningComponentBundle>

@@ -43,13 +43,23 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
     @api isCounterDisplayed;
     @api actionButtons; //buttons for the list
     @api showCheckboxes;
+    @api showCheckboxesCondition;
     @api showViewAll;
     @api hasPagination;
+    @api paginationLabels;
     @api predefinedCol = '';
     @api hasSearchBar;
     @api orderBy;
     @api islookupFilter;
     @api lookupFilterConfigJSON;
+    @api hideActions; // buttons for each line
+    @api fieldsSearchBars; // Fields Name for SOQL search bars
+    @api customCss;
+    @api prequeryHook;
+    @api recordsHook;
+    @api maxRowSelection;
+    @api noResultMessage;
+
     // Private Property
     @api oldPredefinedCol = '';
     connectedUserId = Id
@@ -58,7 +68,7 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
     @track offSet = 0;
     @track totalRows = 0;
     @track error;
-    @track selectedRows;
+    @track selectedRows = [];
     @track initialLimit;
     @track showCollapse = false;
     @track sortBy;
@@ -68,6 +78,9 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
     @track searchTerm;
     @track lookupFilterCondition;
     @track isloading = false;
+    @track whereLike;
+    @track timeout;
+    @track anyCheckbox = true;
 
     draftValues = []; // don't touch
     draftValuesCustomDatatypes = [];
@@ -75,6 +88,7 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
         recordUpdatedSuccessMessage,
         recordDeletedSuccessMessage
     };
+    customCssInitialized = false;
 
     // Do init funtion
     connectedCallback() {
@@ -83,15 +97,38 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
         //This function can used for local development config, pass 'true' for config
         configLocal(this, false);
         setPredefinedColumnJSON(this);
+        const defaultPaginationLabels = {"first": "First", "previous": "Previous", "prefix": "", "separator": "/", "suffix": "", "next": "Next", "last": "Last"};
+        if (this.paginationLabels) {
+            this.paginationLabels = {...defaultPaginationLabels, ...JSON.parse(this.paginationLabels)};
+        }
+        this.paginationLabels = this.paginationLabels ?? defaultPaginationLabels;
         if (this.actionButtons) {
-            this.actionButtons = JSON.parse(this.actionButtons);
+            this.actionButtons = JSON.parse(this.actionButtons).map(button => ({
+                ...button,
+                defaultDisabled: button.disabled ?? false
+            }));
         }
         if (this.formulaImageFields) {
             this.formulaImageFields = JSON.parse(this.formulaImageFields);
         }
+        if (this.fieldsSearchBars) {
+            this.fieldsSearchBars = JSON.parse(this.fieldsSearchBars);
+        }
+        if (this.showCheckboxesCondition) {
+            this.showCheckboxesCondition = JSON.parse(this.showCheckboxesCondition);
+        }
         this.initialLimit = this.limit;
         this.buildSOQL();
         this.init();
+    }
+
+    async renderedCallback() {
+        if (this.customCssInitialized) {
+            return;
+        }
+        this.customCssInitialized = true;
+
+        this.addCustomCss(this.customCss, 'main');
     }
 
     init() {
@@ -99,7 +136,10 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
             soql: this.soql,
             objectName: this.objectName,
             whereClause: this.appendWhere(),
-            colsJson: JSON.stringify(this.colsJson)
+            colsJson: JSON.stringify(this.colsJson),
+            recordId: this.recordId,
+            prequeryHook: this.prequeryHook,
+            recordsHook: this.recordsHook
         })
             .then((data) => {
                 if (data) {
@@ -110,10 +150,12 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
 
                     this.colsJson = cols;
                     let colAc = Object.values(cols);
-                    colAc.push({
-                        type: 'action',
-                        typeAttributes: { rowActions: actions }
-                    });
+                    if (!this.hideActions) {
+                        colAc.push({
+                            type: 'action',
+                            typeAttributes: { rowActions: actions }
+                        });
+                    }
 
                     //rem
                     if (this.fieldsToHide?.split(',').length > 0) {
@@ -129,6 +171,7 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
                     this.totalRows = count;
 
                     this.checkFormulaImageFields();
+                    this.checkShownCheckboxes();
                 }
             })
             .catch((error) => {
@@ -136,6 +179,49 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
                     this.formatError(error);
                 }
             });
+    }
+    async rePaginate() {
+        await buildFieldJSON({
+            soql: this.soql,
+            objectName: this.objectName,
+            whereClause: this.appendWhere(),
+            colsJson: JSON.stringify(this.colsJson),
+            recordId: this.recordId,
+            prequeryHook: this.prequeryHook,
+            recordsHook: this.recordsHook
+        })
+            .then((data) => {
+                if (data) {
+                    const { records, cols, count, iconName } = formatData(
+                        this,
+                        data
+                    );
+                    if (this.totalRows != count) {
+                        this.totalRows = count;
+                        this.offSet = 0;
+                    }
+                }
+            })
+            .catch((error) => {
+                if (error) {
+                    this.formatError(error);
+                }
+            });
+    }
+
+    // Add style tag to the element, reuse existing style tag
+    addCustomCss(customCss, section) {
+        if (customCss) {
+            let style = this.template.querySelector(`lightning-card style[data-section="${section}"]`);
+            if (style == null) {
+                style = document.createElement('style');
+                style.setAttribute('data-section', section);
+                this.template.querySelector('lightning-card').appendChild(style);
+            }
+            style.innerText = customCss
+                                .replace(/\/\*.\*\//g, '')
+                                .replace(/\s{2,}/g, ' ');
+        }
     }
 
     // Formula fields with images (e.g. traffic lights) are of type 'string'
@@ -148,6 +234,30 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
                 }
             });
         }
+    }
+
+    // if showCheckboxesCondition checkboxes activated, hide/show checkboxes on every refresh
+    checkShownCheckboxes() {
+        if (!this.showCheckboxesCondition || (this.showCheckboxesCondition['field'] ?? '') == '') {
+            return;
+        }
+        if (this.data.length === 0) {
+            return;
+        }
+        const cssLines = this.data
+            .filter(data => !this.isCheckboxVisible(data))
+            .map(data => `c-lwc-related-list tr[data-row-key-value="${data.Id}"] .slds-checkbox { display: none; }`);
+        this.anyCheckbox = (cssLines.length < this.data.length);
+        const css = cssLines.join(' ');
+        this.addCustomCss(css, 'rows');
+    }
+
+    isCheckboxVisible(data) {
+        if (!this.showCheckboxesCondition) {
+            return true;
+        }
+        let value = data[this.showCheckboxesCondition.field];
+        return value == null || this.showCheckboxesCondition.values.includes(value.toString());
     }
 
     customTypeChanged(event) {
@@ -213,10 +323,11 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
 
     fetchRecords() {
         this.isloading = true;
-        getRecords({ soql: this.soql })
+        getRecords({ soql: this.soql, recordId: this.recordId, prequeryHook: this.prequeryHook, recordsHook: this.recordsHook })
             .then((data) => {
                 if (data) {
                     this.data = _formatData(this, this.colsJson, data);
+                    this.checkShownCheckboxes();
                     this.isloading = false;
                 }
             })
@@ -273,6 +384,7 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
 
     handleRowAction(event) {
         const actionName = event.detail.action.name;
+        const actionTarget = event.detail.action.target;
         const row = event.detail.row;
         switch (actionName) {
             case 'edit':
@@ -282,7 +394,7 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
                 this.deleteRow(row);
                 break;
             case 'show_details':
-                this.showRowDetails(row);
+                this.showRowDetails(row, actionTarget);
                 break;
             default:
         }
@@ -299,12 +411,20 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
     handleButtonAction(event) {
         //call desired javacript method or apex call, or throw an event based on the button key(new, delete-selected...)
         //you have selected rows in this.selectedRows
-        const buttonLabel = event.target.dataset.name;
-        switch (buttonLabel) {
+        const buttonName = event.target.dataset.name;
+        switch (buttonName) {
             case 'New':
                 this.newRecord();
                 break;
             default:
+                const buttonActionEvent = new CustomEvent('action', {
+                    detail: {
+                        action: buttonName,
+                        selectedRows: this.selectedRows
+                    }
+                });
+                this.dispatchEvent(buttonActionEvent);
+                break;
         }
     }
 
@@ -329,9 +449,16 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
     }
 
     lastPage() {
-        this.offSet = this.totalRows - this.limit;
+        this.offSet = Math.floor((this.totalRows - 1) / this.limit) * this.limit;
         this.buildSOQL();
         this.fetchRecords();
+    }
+
+    get page() {
+        return this.offSet / this.limit + 1;
+    }
+    get totalPages() {
+        return Math.max(1, Math.ceil(this.totalRows / this.limit));
     }
 
     get isDisablePrev() {
@@ -349,6 +476,16 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
             : this.totalRows <= this.limit
             ? false
             : false;
+    }
+
+    get componentClass() {
+        return (this.data?.length === 0 ? 'no-data ' : '')
+            + (this.selectedRows.length > 0 ? 'has-selection ' : '')
+            + (!this.anyCheckbox ? 'no-selection-available ' : '');
+    }
+
+    get showNoResultMessage() {
+        return this.noResultMessage != '' && this.data?.length === 0;
     }
 
     /*********************************************************************
@@ -405,7 +542,21 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
         return ret;
     }
 
-    showRowDetails(row) {
+    showRowDetails(row, target) {
+        if ((target || '_self') != '_self') {
+            this[NavigationMixin.GenerateUrl]({
+                type: 'standard__recordPage',
+                attributes: {
+                    recordId: row.Id,
+                    objectApiName: this.objectName,
+                    actionName: 'view'
+                }
+            }).then(url => {
+                window.open(url, target);
+            });
+            return;
+        }
+
         this[NavigationMixin.Navigate]({
             type: 'standard__recordPage',
             attributes: {
@@ -438,11 +589,50 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
             soql += ` GROUP BY ${this.groupBy} `;
         }
 
-        //if we filter on a column then we ignore the ORDER BY defined in the configuration
-        if (this.orderBy && !this.sortBy) {
-            soql += ` ORDER BY ${this.orderBy}`;
-        } else if (this.sortBy && this.sortDirection) {
-            soql += ` ORDER BY ${this.sortBy} ${this.sortDirection} `;
+        // Handle sorting (supports multiple sorts, priority to sortBy column before orderBy lwc param)
+        if (this.orderBy || this.sortBy) {
+            let orderByClause = '';
+
+            // SortBy, replaced by column alias (aggregated field / json config sortAlias)
+            if (this.sortBy) {
+                let aliasSortBy = this.sortBy.replace('_url','');
+                this.fields.split(',').forEach(field => {
+                        let fieldSplitted = field.trim().split(' ');
+                        if (fieldSplitted.length === 2 && fieldSplitted[1].toLowerCase() == aliasSortBy.toLowerCase()) {
+                            aliasSortBy = fieldSplitted[0];
+                        }
+                    });
+                if (this.colsJson[aliasSortBy]?.sortAlias) {
+                    aliasSortBy = this.colsJson[aliasSortBy].sortAlias;
+                }
+                orderByClause += `${aliasSortBy} ${this.sortDirection}`;
+            }
+
+            if (this.orderBy) {
+                if (orderByClause != '') {
+                    orderByClause += ',';
+                }
+                orderByClause +=
+                    this.orderBy.split(',').map(field => {
+                        let [fieldName, direction] = field.trim().split(' ');
+                        direction = direction?.toLowerCase() ?? 'asc';
+                        if (this.sortDirection == 'desc') {
+                            direction = direction == 'asc' ? 'desc' : 'asc';
+                        }
+                        let nullsSort = this.nullsSort(direction);
+                        return `${fieldName} ${direction} ${nullsSort}`;
+                    }).join(',');
+            }
+
+            // Specify NULLS FIRST / LAST
+            orderByClause = orderByClause.split(',').map(field => {
+                let [fieldName, direction] = field.trim().split(' ');
+                direction = direction ?? 'asc';
+                let nullsSort = this.nullsSort(direction);
+                return `${fieldName} ${direction} ${nullsSort}`;
+            }).join(',');
+
+            soql += ` ORDER BY ${orderByClause} `;
         }
 
         if (this.limit && this.limit > 0) {
@@ -451,6 +641,9 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
         }
 
         this.soql = soql;
+    }
+    nullsSort(direction) {
+        return direction == 'asc' ? 'NULLS FIRST' : 'NULLS LAST';
     }
 
     appendField() {
@@ -471,8 +664,21 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
                 this.whereClause.replaceAll('connectedUserId', this.connectedUserId)
             }
         }
+        if (this.whereLike) {
+            where.push(
+                '( '
+                + this.whereLike.field
+                    .split(',')
+                    .map(field =>
+                        `${field.trim()} LIKE '%${this.escapeSOQL(this.whereLike.value)}%'`
+                    ).join(' OR ')
+                +' )');
+        }
         if (this.lookupFilterCondition) where.push(this.lookupFilterCondition);
         return where.length > 0 ? ` WHERE ${where.join(' AND ')} ` : '';
+    }
+    escapeSOQL(value) {
+        return value.replace(/'/g, "\\'").replace(/\\/g, "\\\\");
     }
 
     appendLimit() {
@@ -503,6 +709,20 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
         this.selectedRows = JSON.parse(
             JSON.stringify(event.detail.selectedRows)
         );
+        if (this.showCheckboxesCondition) {
+            // filter out rows that should not be visible
+            this.selectedRows = event.detail.selectedRows.filter(selectedRow => {
+                    const matchingData = this.data.find(row => row.Id === selectedRow.Id);
+                    if (!matchingData) return true;
+                    return this.isCheckboxVisible(matchingData);
+                });
+        }
+        this.componentClasse = this.selectedRows.length > 0 ? 'has-selection' : '';
+        if (this.actionButtons) {
+            this.actionButtons.forEach(button => {
+                button.disabled = this.selectedRows.length === 0 ? button.defaultDisabled : false;
+            });
+        }
     }
 
     get hasToShowViewAll() {
@@ -537,7 +757,14 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
     }
 
     onSearchChange(event) {
+        this.clearFields(event.target.name);
+
         this.searchTerm = event.target.value;
+        // reset fields search if necessary
+        if (this.whereLike) {
+            this.whereLike = null;
+            this.buildSOQL();
+        }
         if (!this.searchTerm || this.searchTerm === '') {
             this.fetchRecords();
         }
@@ -561,5 +788,39 @@ export default class LwcDatatable extends NavigationMixin(LightningElement) {
                     );
                 });
         }
+    }
+
+    clearFields(avoidInputName) {
+        this.template
+            .querySelectorAll('lightning-input')
+            .forEach(c => {
+                if (c.name != avoidInputName) {
+                    c.value = '';
+                }
+            });
+    }
+
+    onFieldSearchChange(event) {
+        const fieldName = event.target.dataset.fieldname;
+        const fieldSearchTerm = event.target.value;
+
+        this.clearFields(event.target.name);
+
+        clearTimeout(this.timeout);
+        // debounce
+        this.timeout = setTimeout(() => {
+            this.searchTerm = '';
+            this.whereLike = null;
+
+            //minimum two caracters required to search
+            if (fieldSearchTerm && fieldSearchTerm.length > 1 && fieldName) {
+                this.whereLike = { field: fieldName, value: fieldSearchTerm };
+            }
+
+            this.rePaginate().then(() => {
+                this.buildSOQL();
+                this.fetchRecords();
+            });
+        }, 300);
     }
 }

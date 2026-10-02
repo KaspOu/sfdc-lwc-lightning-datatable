@@ -7,7 +7,7 @@
         </div>
     </template>
     <!-- Main content -->
-    <lightning-card variant="Narrow" title={titleFormatted} icon-name={iconName}>
+    <lightning-card variant="Narrow" title={titleFormatted} icon-name={iconName} class={componentClass}>
         <!-- custom action buttons for list, by default new is displayed -->
         <template if:true={actionButtons}>
             <template for:each={actionButtons} for:item="actionButton" for:index="index">
@@ -20,27 +20,29 @@
                     data-name={actionButton.name}
                     class="slds-p-left_xx-small"
                     slot="actions"
+                    disabled={actionButton.disabled}
                 >
                 </lightning-button>
             </template>
             <lightning-button-icon
                 icon-name="utility:refresh"
-                alternative-text="Refresh"
+                alternative-text={paginationLabels.refresh}
                 onclick={init}
                 slot="actions"
-                class="slds-p-left_xx-small"
+                class="slds-p-left_xx-small button-refresh"
+                lwc:ref="refreshButton"
             ></lightning-button-icon>
         </template>
 
-        <!-- SEARCH BAR -->
+        <!-- GLOBAL SOSL SEARCH BAR + LOOKUP FILTER -->
         <lightning-layout>
-            <lightning-layout-item flexibility="auto" padding="around-small">
-                <div if:true={hasSearchBar} onkeyup={onSearchChange}>
-                    <lightning-input name="enter-search" label="Search" type="search"></lightning-input>
+            <lightning-layout-item flexibility="auto" padding="around-small" if:true={hasSearchBar}>
+                <div>
+                    <lightning-input name="enter-search" label="Search" type="search" onchange={onSearchChange}></lightning-input>
                 </div>
             </lightning-layout-item>
-            <lightning-layout-item flexibility="auto" padding="around-small">
-                <div if:true={islookupFilter}>
+            <lightning-layout-item flexibility="auto" padding="around-small" if:true={islookupFilter}>
+                <div>
                     <c-datatable-lookup-filter
                         config={lookupFilterConfigJSON}
                         onlookupfilter={handleLookupFilter}
@@ -49,8 +51,19 @@
             </lightning-layout-item>
         </lightning-layout>
 
+        <!-- FIELDS SOQL SEARCH BARS -->
+        <lightning-layout>
+            <template for:each={fieldsSearchBars} for:item="searchBar" for:index="index">
+                <lightning-layout-item key={searchBar.label} flexibility="auto" padding="around-small">
+                    <div>
+                        <lightning-input name={searchBar.fieldName} label={searchBar.label} data-fieldname={searchBar.fieldName} placeholder={searchBar.placeholder} type="search" onchange={onFieldSearchChange}></lightning-input>
+                    </div>
+                </lightning-layout-item>
+            </template>
+        </lightning-layout>
+
         <!-- Data table  -->
-        <template if:true={data}>
+        <template lwc:if={data}>
             <!-- DATATABLE WITH CHECKBOXES -->
             <c-extended-datatable
                 hide-checkbox-column={showCheckboxes}
@@ -68,41 +81,53 @@
                 onlookupchanged={customTypeChanged}
                 ontextareachanged={customTypeChanged}
                 is-loading={isloading}
+                max-row-selection={maxRowSelection}
             >
             </c-extended-datatable>
+            <template lwc:if={showNoResultMessage}>
+                <div class="slds-notify slds-notify_alert slds-theme_alert-texture slds-theme_info" role="alert">
+                    {noResultMessage}
+                </div>
+            </template>
         </template>
+        <c-loader lwc:else size="medium" is-loading=true full-width alternative-text="Loading">
+        </c-loader>
 
         <!-- Pagination -->
         <div slot="footer" style="text-align: right" if:true={hasPagination}>
             <lightning-button
                 variant="brand"
                 disabled={isDisablePrev}
-                label="First"
-                title="Primary action"
+                label={paginationLabels.first}
+                title={paginationLabels.first}
                 onclick={firstPage}
                 class="slds-m-left_xx-small"
             ></lightning-button>
             <lightning-button
                 variant="brand"
                 disabled={isDisablePrev}
-                label="Previous"
-                title="Primary action"
+                label={paginationLabels.previous}
+                title={paginationLabels.previous}
                 onclick={previous}
                 class="slds-m-left_xx-small"
             ></lightning-button>
+            <span
+                class="slds-m-left_xx-small slds-m-right_xx-small">
+                {paginationLabels.prefix}{page}{paginationLabels.separator}{totalPages}{paginationLabels.suffix}
+            </span>
             <lightning-button
                 variant="brand"
                 disabled={isDisableNext}
-                label="Next"
-                title="Primary action"
+                label={paginationLabels.next}
+                title={paginationLabels.next}
                 onclick={next}
                 class="slds-m-left_xx-small"
             ></lightning-button>
             <lightning-button
                 variant="brand"
                 disabled={isDisableNext}
-                label="Last"
-                title="Primary action"
+                label={paginationLabels.last}
+                title={paginationLabels.last}
                 onclick={lastPage}
                 class="slds-m-left_xx-small slds-m-right_xx-small"
             ></lightning-button>

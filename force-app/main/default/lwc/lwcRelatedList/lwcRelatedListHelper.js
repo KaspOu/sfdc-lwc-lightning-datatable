@@ -41,7 +41,7 @@ const setPredefinedColumnJSON = (cmp) => {
     cmp.predefinedCol = predefinedCol;
     const setPredefinedCol = {};
     cmp.fields.split(',').forEach((element) => {
-        element = element.trim();
+        element = element.trim().split(' ').pop();
         if (
             predefinedCol &&
             Object.prototype.hasOwnProperty.call(predefinedCol, element)
@@ -75,11 +75,13 @@ const setPredefinedColumnJSON = (cmp) => {
 //Helper function for formatData()
 const _formatData = (cmp, cols, records) => {
     const fullFieldByAlias = {};
-    cmp.fields.split(',').forEach((fieldElement) => {
-        if (fieldElement.split(' ').length === 2) {
-            fullFieldByAlias[fieldElement.split(' ')[1]] = fieldElement;
-        }
-    });
+    // NO NEED?
+    // cmp.fields.split(',').forEach((fieldElement) => {
+    //     let fieldSplitted = field.trim().split(' ');
+    //     if (fieldSplitted.length === 2) {
+    //         fullFieldByAlias[fieldSplitted[0]] = fieldElement[1];
+    //     }
+    // });
 
     records.forEach((e) => {
         // eslint-disable-next-line guard-for-in
@@ -175,6 +177,20 @@ const formatData = (cmp, data) => {
             )
         ) {
             cols[e].typeAttributes = cmp.predefinedCol[e].typeAttributes;
+        }
+        if (
+            cmp.predefinedCol &&
+            Object.prototype.hasOwnProperty.call(cmp.predefinedCol, e) &&
+            Object.prototype.hasOwnProperty.call(
+                cmp.predefinedCol[e],
+                'cellAttributes'
+            ) &&
+            Object.prototype.hasOwnProperty.call(
+                cmp.predefinedCol[e].cellAttributes,
+                'class'
+            )
+        ) {
+            cols[e].cellAttributes.class = cmp.predefinedCol[e].cellAttributes.class;
         }
     });
     records = _formatData(cmp, cols, records);
